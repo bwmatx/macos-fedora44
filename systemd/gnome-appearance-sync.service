@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync GNOME light/dark appearance profiles with color-scheme
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/gnome-appearance-sync.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
