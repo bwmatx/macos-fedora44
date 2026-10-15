@@ -274,34 +274,154 @@ class LogoMenuMenuButton extends PanelMenu.Button {
 export default class LogoMenu extends Extension {
     enable() {
         this.settings = this.getSettings();
+        // PATCH LOKAL (2026-10-16): indikator LogoMenu juga dipasang di
+        // bar top monitor sekunder (ekstensi Top Bar All Monitors).
+        this._secondaryIndicators = new Map();
+        this._syncIdleId = 0;
 
         this.settings.connectObject('changed::show-activities-button',
             () => this._setActivitiesVisibility(), this);
+
+        Main.layoutManager.connectObject(
+            'startup-complete', () => this._scheduleSecondarySync(),
+            'monitors-changed', () => this._scheduleSecondarySync(),
+            this
+        );
 
         this._setActivitiesVisibility();
 
         const indicator = new MenuButton(this);
         Main.panel.addToStatusArea('LogoMenu', indicator, 0, 'left');
+
+        this._scheduleSecondarySync();
     }
 
     disable() {
-        if (!Main.sessionMode.isLocked)
-            Main.panel.statusArea.activities?.container.show();
+        Main.layoutManager.disconnectObject(this);
 
-        Main.panel.statusArea['LogoMenu'].destroy();
+        if (this._syncIdleId) {
+            GLib.Source.remove(this._syncIdleId);
+            this._syncIdleId = 0;
+        }
+
+        if (!Main.sessionMode.isLocked) {
+            for (const panel of this._allPanels())
+                panel.statusArea?.activities?.container?.show();
+        }
+
+        if (this._secondaryIndicators) {
+            for (const indicator of this._secondaryIndicators.values()) {
+                try {
+                    indicator.destroy();
+                } catch (e) {
+                    log(e);
+                }
+            }
+            this._secondaryIndicators = null;
+        }
+
+        try {
+            Main.panel.statusArea['LogoMenu']?.destroy();
+        } catch (e) {
+            log(e);
+        }
+
         this.settings = null;
     }
 
     _setActivitiesVisibility() {
         const showActivitiesButton = this.settings.get_boolean('show-activities-button');
-        const activitiesButton = Main.panel.statusArea['activities'];
 
-        if (!activitiesButton)
+        for (const panel of this._allPanels()) {
+            const activitiesButton = panel.statusArea?.['activities'];
+
+            if (!activitiesButton)
+                continue;
+
+            if (showActivitiesButton)
+                activitiesButton.container.show();
+            else
+                activitiesButton.container.hide();
+        }
+    }
+
+    _allPanels() {
+        return [Main.panel, ...this._findSecondaryPanels()];
+    }
+
+    _findSecondaryPanels() {
+        const panels = [];
+
+        for (const actor of Main.layoutManager.uiGroup.get_children()) {
+            const name = actor.get_name();
+            if (name !== 'panelBox' && name !== 'topbarAllMonitorsPanelBox')
+                continue;
+
+            // Cari aktor panel di dalam box (setelah di-blur BMS, box berisi
+            // 2 anak: grup background blur + panel).
+            for (const child of actor.get_children()) {
+                if (child === Main.panel)
+                    continue;
+                if (child.statusArea && child._centerBox) {
+                    panels.push(child);
+                    break;
+                }
+            }
+        }
+
+        return panels;
+    }
+
+    _scheduleSecondarySync() {
+        if (this._syncIdleId)
             return;
 
-        if (showActivitiesButton)
-            activitiesButton.container.show();
-        else
-            activitiesButton.container.hide();
+        // Tunggu satu putaran idle supaya panel sekunder sempat dipublikasikan.
+        this._syncIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._syncIdleId = 0;
+            this._syncSecondaryIndicators();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _syncSecondaryIndicators() {
+        if (!this.settings || !this._secondaryIndicators)
+            return;
+
+        const panels = this._findSecondaryPanels();
+
+        // Buang entri yang panelnya sudah tidak ada (mis. saat monitor berubah).
+        for (const [panel, indicator] of [...this._secondaryIndicators]) {
+            if (panels.includes(panel))
+                continue;
+
+            try {
+                indicator.destroy();
+            } catch (e) {
+                log(e);
+            }
+            this._secondaryIndicators.delete(panel);
+        }
+
+        // Pasang indikator di setiap panel sekunder yang belum punya.
+        for (const panel of panels) {
+            if (this._secondaryIndicators.has(panel))
+                continue;
+
+            // Bersihkan tombol basi (mis. setelah reload ekstensi).
+            if (panel.statusArea?.['LogoMenu']) {
+                try {
+                    panel.statusArea['LogoMenu'].destroy();
+                } catch (e) {
+                    log(e);
+                }
+            }
+
+            const indicator = new MenuButton(this);
+            panel.addToStatusArea('LogoMenu', indicator, 0, 'left');
+            this._secondaryIndicators.set(panel, indicator);
+        }
+
+        this._setActivitiesVisibility();
     }
 }

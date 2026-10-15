@@ -18,6 +18,7 @@ import { startSyncLoop, stopStageLoop } from './animation/frameLoops.js';
 import { placeScreenGlass, resolveGlassOrigin, applyGlassScale, GLASS_SHADOW_MAX_RADIUS } from './actors/glassBounds.js';
 import { setPositionIfChanged, setScaleIfChanged } from './actors/writes.js';
 import { resolveCrossFade, adaptiveColorTweener, hexToColorArray, hexToRgb } from './animation/colors.js';
+import { UIManager } from './uiManager.js';
 import { MENU_NO_ANIMATION } from './shellVersion.js';
 // Room around the glass rect for the shader's edge effects.
 const SHADER_PADDING = 20;
@@ -161,15 +162,18 @@ export class QuickSettingsManager {
     // see _resolveToggleRegions().
     _lastGoodRegions = null;
     _regionGraceFrames = 0;
-    constructor(extensionPath, settings, logger) {
+    // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): parameter `menu`
+    // opsional - dipakai untuk mengelola menu quick settings clone di bar
+    // monitor sekunder; default tetap menu quick settings bar utama.
+    constructor(extensionPath, settings, logger, menu = null) {
         this.extensionPath = extensionPath;
         this._settings = settings;
         this._logger = logger;
-        this.targetActor = Main.panel.statusArea.quickSettings.menu.actor;
-        this.menu = Main.panel.statusArea.quickSettings.menu;
+        this.menu = menu ?? Main.panel.statusArea.quickSettings.menu;
+        this.targetActor = this.menu.actor;
         this._toggleStyles = new ToggleStyles(logger, () => !!this.menu?.isOpen);
         // The menu's content box, which the animations and offsets move.
-        this.animActor = Main.panel.statusArea.quickSettings.menu.box;
+        this.animActor = this.menu.box;
         this.glass = null;
         this._signals = [];
         this._frameSyncId = 0;
@@ -1403,5 +1407,170 @@ export class QuickSettingsManager {
             this._settings.disconnect(sigId);
         this._settingsSignals = [];
         this._removeEffect();
+    }
+}
+
+// PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): mengelola instance
+// QuickSettingsManager tambahan untuk menu quick settings clone di bar
+// monitor sekunder (ekstensi Top Bar All Monitors). Instance membaca setelan
+// yang sama (quick-settings-*), jadi tampilan dan animasinya identik dengan
+// action center di bar utama.
+// PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): kaca untuk menu di bar
+// monitor sekunder (Top Bar All Monitors). Setiap menu quick settings
+// sekunder mendapat instance QuickSettingsManager tersendiri (resep
+// quick-settings-* — sama persis dengan bar utama), dan setiap kalender
+// sekunder mendapat instance UIManager (resep menu-* milik kalender bar
+// utama).
+//
+// Pemicu pemindaian mengikuti PanelMenuManager (child-added/-removed pada box
+// panel utama + event layout/ekstensi) plus beberapa percobaan berjeda.
+// Alasannya: panel sekunder baru dibuat saat startup-complete dan baru diberi
+// nama "panelBox" setelah alokasi pertama (lihat _publishPanel di
+// topbar-all-monitors), sehingga percobaan tunggal di awal startup pasti
+// meleset.
+export class SecondaryQuickSettingsSync {
+    constructor(extensionPath, settings, logger) {
+        this._path = extensionPath;
+        this._settings = settings;
+        this._logger = logger;
+        this._qsManagers = new Map();
+        this._calendarManagers = new Map();
+        this._signals = [];
+        this._timers = [];
+        this._idleId = 0;
+    }
+    setup() {
+        const schedule = () => this._schedule();
+        const watch = (target, signal) => {
+            if (target)
+                this._signals.push({ target, id: target.connect(signal, schedule) });
+        };
+        // Pemicu sama dengan PanelMenuManager: shell menambah/menghapus
+        // indikator pada box panel utama secara bertahap setelah startup, dan
+        // saat itulah panel sekunder sudah memakai nama "panelBox".
+        const panel = Main.panel;
+        for (const box of [panel?._leftBox, panel?._centerBox, panel?._rightBox]) {
+            watch(box, 'child-added');
+            watch(box, 'child-removed');
+        }
+        watch(Main.extensionManager, 'extension-state-changed');
+        watch(Main.layoutManager, 'startup-complete');
+        watch(Main.layoutManager, 'monitors-changed');
+        // Jaring pengaman: beberapa percobaan berjeda melewati jendela
+        // pembuatan + penamaan panel sekunder di awal startup.
+        for (const ms of [1500, 3000, 6000, 12000, 25000]) {
+            this._timers.push(GLib.timeout_add(GLib.PRIORITY_DEFAULT, ms, () => {
+                this._schedule();
+                return GLib.SOURCE_REMOVE;
+            }));
+        }
+        this._schedule();
+    }
+    _schedule() {
+        if (this._idleId)
+            return;
+        this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._idleId = 0;
+            try {
+                this._sync();
+            } catch (e) {
+                console.log(`[Liquid Glass] Sinkronisasi kaca bar sekunder gagal: ${e}`);
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+    // Resep finder yang sama dengan PanelMenuManager._findSecondaryPanels:
+    // anak "panelBox" di uiGroup yang bukan panel utama.
+    _findSecondaryPanels() {
+        const panels = [];
+        for (const actor of Main.layoutManager.uiGroup.get_children()) {
+            if (actor.get_name() !== 'panelBox')
+                continue;
+            for (const child of actor.get_children()) {
+                if (child === Main.panel)
+                    continue;
+                if (child.statusArea && child._centerBox && child._rightBox) {
+                    panels.push(child);
+                    break;
+                }
+            }
+        }
+        return panels;
+    }
+    _sync() {
+        const qsMenus = new Set();
+        const calendarMenus = new Set();
+        for (const panel of this._findSecondaryPanels()) {
+            const qsMenu = panel.statusArea?.quickSettings?.menu;
+            if (qsMenu)
+                qsMenus.add(qsMenu);
+            const calendarMenu = panel.statusArea?.dateMenu?.menu;
+            if (calendarMenu)
+                calendarMenus.add(calendarMenu);
+        }
+        this._syncManagers(this._qsManagers, qsMenus,
+            menu => new QuickSettingsManager(this._path, this._settings, this._logger, menu),
+            'quick settings');
+        this._syncManagers(this._calendarManagers, calendarMenus,
+            menu => new UIManager(this._path, this._settings, this._logger,
+                { menu }, false, 'enable-menu-glass', 'menu', 'menu:kalender-sekunder', false),
+            'kalender');
+    }
+    _syncManagers(managers, menus, construct, label) {
+        for (const [menu, manager] of managers) {
+            if (menus.has(menu))
+                continue;
+            managers.delete(menu);
+            try {
+                manager.cleanup();
+            } catch (e) {
+                console.log(`[Liquid Glass] Pembersihan kaca ${label} sekunder gagal: ${e}`);
+            }
+        }
+        for (const menu of menus) {
+            if (managers.has(menu))
+                continue;
+            let manager = null;
+            try {
+                manager = construct(menu);
+                manager.setup();
+                managers.set(menu, manager);
+                console.log(`[Liquid Glass] Kaca ${label} bar sekunder terpasang (${managers.size} menu)`);
+            } catch (e) {
+                try {
+                    manager?.cleanup();
+                } catch (_) {
+                    // abaikan
+                }
+                console.log(`[Liquid Glass] Kaca ${label} bar sekunder GAGAL terpasang: ${e}`);
+            }
+        }
+    }
+    cleanup() {
+        if (this._idleId) {
+            GLib.Source.remove(this._idleId);
+            this._idleId = 0;
+        }
+        for (const id of this._timers)
+            GLib.Source.remove(id);
+        this._timers = [];
+        for (const { target, id } of this._signals) {
+            try {
+                target.disconnect(id);
+            } catch (e) {
+                // target sudah hancur: abaikan
+            }
+        }
+        this._signals = [];
+        for (const managers of [this._qsManagers, this._calendarManagers]) {
+            for (const manager of managers.values()) {
+                try {
+                    manager.cleanup();
+                } catch (e) {
+                    // abaikan
+                }
+            }
+            managers.clear();
+        }
     }
 }

@@ -326,10 +326,15 @@ const TopLevelMenuButton = GObject.registerClass(
 );
 
 export class MenuManager {
-    constructor(uuid, settings, version) {
+    constructor(uuid, settings, version, panel = Main.panel) {
         this.uuid = uuid;
         this._version = version;
         this._settings = settings;
+
+        // PATCH LOKAL (2026-10-16): target panel bisa diganti, dipakai untuk
+        // memasang AppMenu juga di bar monitor sekunder.
+        this._panel = panel ?? Main.panel;
+
         this._buttons = [];
         this._timeoutIds = [];
         this._destroyed = false;
@@ -673,7 +678,7 @@ export class MenuManager {
             // immediately remove/rebuild, which causes disposed PopupMenuItem
             // warnings during extension reloads.
             const btn = new TopLevelMenuButton(data.label, [], detectedApp, this);
-            Main.panel.addToStatusArea(`${this.uuid}-${idx}`, btn, idx + 1, 'left');
+            this._panel.addToStatusArea(`${this.uuid}-${idx}`, btn, idx + 1, 'left');
             this._buttons.push(btn);
         }
 

@@ -7,7 +7,7 @@ import {PanelMenuManager} from './dist/panelMenuManager.js';
 import {BlurMyShellWatch} from './dist/blurMyShell.js';
 import {DockWatcher} from './dist/dockWatcher.js';
 import {NotificationManager} from './dist/notificationManager.js';
-import {QuickSettingsManager} from './dist/quickSettingsManager.js';
+import {QuickSettingsManager, SecondaryQuickSettingsSync} from './dist/quickSettingsManager.js';
 import {OsdManager} from './dist/osdManager.js';
 import {ApplicationManager} from './dist/applicationManager.js';
 import {WindowListService} from './dist/windowListService.js';
@@ -78,6 +78,13 @@ export default class LiquidGlassExtension extends Extension {
       return GLib.SOURCE_REMOVE;
     });
 
+    // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): menu quick settings di
+    // bar monitor sekunder (clone Top Bar All Monitors) juga dikelola
+    // QuickSettingsManager - satu instance per menu - supaya action center di
+    // sana persis sama dengan bar utama.
+    this._secondaryQsSync = new SecondaryQuickSettingsSync(path, this._settings, this._logger);
+    this._secondaryQsSync.setup();
+
     this._dockWatcher = new DockWatcher(path, this._settings, this._logger, this._iconStyler);
     this._dockWatcher.setup();
 
@@ -117,6 +124,9 @@ export default class LiquidGlassExtension extends Extension {
 
     this._quickSettingsManager?.cleanup();
     this._quickSettingsManager = null;
+
+    this._secondaryQsSync?.cleanup();
+    this._secondaryQsSync = null;
 
     // Before the icon styler, which the docks' icons are watched by.
     this._dockWatcher.cleanup();

@@ -26,6 +26,10 @@ export default class AppMenuExtension extends Extension {
         this._searchShortcutInstalled = false;
         this._overviewHidden = false;
         this._overviewWasVisible = false;
+        // PATCH LOKAL (2026-10-16): pengelola menu AppMenu untuk bar monitor sekunder.
+        this._uuid = 'appmenu@ChathurangaBW.github.io';
+        this._secondaryManagers = new Map();
+        this._secondarySyncId = 0;
     }
 
     enable() {
@@ -38,11 +42,21 @@ export default class AppMenuExtension extends Extension {
         this._hasMenuFocusState = false;
 
         const uuid = this.metadata.uuid || 'appmenu@ChathurangaBW.github.io';
+        this._uuid = uuid;
         this._removeStalePanelButtons(uuid);
         this._menuManager = new MenuManager(uuid, this._settings, this.metadata.version);
 
         const initialWindow = global.display.get_focus_window();
         this._updateMenu(initialWindow);
+
+        // PATCH LOKAL (2026-10-16): ikutkan bar monitor sekunder; panelnya
+        // dibuat ekstensi lain setelah startup, jadi sinkronkan via idle.
+        Main.layoutManager.connectObject(
+            'startup-complete', () => this._scheduleSecondarySync(),
+            'monitors-changed', () => this._scheduleSecondarySync(),
+            this
+        );
+        this._scheduleSecondarySync();
 
         global.display.connectObject('notify::focus-window', () => {
             this._scheduleMenuUpdate();
@@ -62,7 +76,13 @@ export default class AppMenuExtension extends Extension {
     }
 
     _removeStalePanelButtons(uuid) {
-        const statusArea = Main.panel?.statusArea;
+        // PATCH LOKAL (2026-10-16): bersihkan juga di bar monitor sekunder.
+        for (const panel of [Main.panel, ...this._findSecondaryPanels()])
+            this._removeStalePanelButtonsForPanel(panel, uuid);
+    }
+
+    _removeStalePanelButtonsForPanel(panel, uuid) {
+        const statusArea = panel?.statusArea;
         if (!statusArea) return;
 
         for (const name of Object.keys(statusArea)) {
@@ -73,6 +93,79 @@ export default class AppMenuExtension extends Extension {
                 statusArea[name]?.destroy();
             } catch (e) {
                 debug(`Could not remove stale panel button ${name}: ${e}`);
+            }
+        }
+    }
+
+    _findSecondaryPanels() {
+        // PATCH LOKAL (2026-10-16): deteksi bar top monitor sekunder
+        // (kotak "panelBox" dari ekstensi Top Bar All Monitors).
+        const panels = [];
+
+        for (const actor of Main.layoutManager.uiGroup.get_children()) {
+            const name = actor.get_name();
+            if (name !== 'panelBox' && name !== 'topbarAllMonitorsPanelBox')
+                continue;
+
+            // Cari aktor panel di dalam box (setelah di-blur BMS, box berisi
+            // 2 anak: grup background blur + panel).
+            for (const child of actor.get_children()) {
+                if (child === Main.panel)
+                    continue;
+                if (child.statusArea && child._centerBox) {
+                    panels.push(child);
+                    break;
+                }
+            }
+        }
+
+        return panels;
+    }
+
+    _scheduleSecondarySync() {
+        if (this._secondarySyncId)
+            return;
+
+        this._secondarySyncId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._secondarySyncId = 0;
+            this._syncSecondaryManagers();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _syncSecondaryManagers() {
+        if (!this._settings || !this._secondaryManagers)
+            return;
+
+        const panels = this._findSecondaryPanels();
+
+        // Buang pengelola yang panelnya sudah hilang (mis. monitor dicabut).
+        for (const [panel, manager] of [...this._secondaryManagers]) {
+            if (panels.includes(panel))
+                continue;
+
+            try {
+                manager.destroy();
+            } catch (e) {
+                debug(`Could not destroy secondary menu manager: ${e}`);
+            }
+            this._secondaryManagers.delete(panel);
+        }
+
+        // Buat pengelola untuk tiap panel sekunder yang belum punya.
+        for (const panel of panels) {
+            if (this._secondaryManagers.has(panel))
+                continue;
+
+            this._removeStalePanelButtonsForPanel(panel, this._uuid);
+
+            try {
+                const manager = new MenuManager(this._uuid, this._settings,
+                    this.metadata.version, panel);
+                manager.updateMenuForWindow(global.display.get_focus_window(), true);
+                this._secondaryManagers.set(panel, manager);
+            } catch (e) {
+                debug(`Could not create secondary menu manager: ${e}`);
             }
         }
     }
@@ -131,6 +224,15 @@ export default class AppMenuExtension extends Extension {
         this._hasMenuFocusState = true;
         debug(`Updating menu for ${window?.get_title?.() || 'Desktop'}.`);
         this._menuManager.updateMenuForWindow(window, true);
+
+        // PATCH LOKAL (2026-10-16): samakan menu di bar monitor sekunder.
+        for (const manager of this._secondaryManagers?.values() ?? []) {
+            try {
+                manager.updateMenuForWindow(window, true);
+            } catch (e) {
+                debug(`Could not update secondary menu: ${e}`);
+            }
+        }
     }
 
     _scheduleMenuUpdate() {
@@ -153,6 +255,24 @@ export default class AppMenuExtension extends Extension {
         debug('Disabling extension.');
 
         global.display.disconnectObject(this);
+        Main.layoutManager.disconnectObject(this);
+
+        if (this._secondarySyncId) {
+            GLib.source_remove(this._secondarySyncId);
+            this._secondarySyncId = 0;
+        }
+
+        if (this._secondaryManagers) {
+            for (const manager of this._secondaryManagers.values()) {
+                try {
+                    manager.destroy();
+                } catch (e) {
+                    debug(`Could not destroy secondary menu manager: ${e}`);
+                }
+            }
+            this._secondaryManagers.clear();
+        }
+
         this._removeSearchKeybinding();
         destroySearchDialog();
 

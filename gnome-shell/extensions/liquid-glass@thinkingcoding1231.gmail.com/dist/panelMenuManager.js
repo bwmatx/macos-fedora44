@@ -43,6 +43,11 @@ export class PanelMenuManager {
             watch(box, 'child-removed');
         }
         watch(Main.extensionManager, 'extension-state-changed');
+        // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): bar top monitor
+        // sekunder dibangun ulang saat startup selesai & saat monitor berubah;
+        // jadwalkan pemindaian ulang pada kedua momen itu.
+        watch(Main.layoutManager, 'startup-complete');
+        watch(Main.layoutManager, 'monitors-changed');
         for (const key of ['enable-extra-menu-glass', 'disabled-extra-menus', ...Object.values(LEGACY_KEYS)])
             watch(this._settings, `changed::${key}`);
         this._scheduleScan();
@@ -57,8 +62,21 @@ export class PanelMenuManager {
         });
     }
     _scan() {
-        const panel = Main.panel;
-        const { buttons, wanted, detected } = this._discover(panel);
+        const buttons = new Set();
+        const wanted = new Map();
+        const detected = [];
+        // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): ikut pindai menu
+        // dari bar top monitor sekunder (Top Bar All Monitors). Menu clone di
+        // sana tidak punya manajer khusus LG, jadi diperlakukan sebagai menu
+        // ekstra supaya mendapat kaca yang sama seperti menu bar utama.
+        for (const panel of [Main.panel, ...this._findSecondaryPanels()]) {
+            const result = this._discover(panel);
+            for (const button of result.buttons)
+                buttons.add(button);
+            for (const [menu, entry] of result.wanted)
+                wanted.set(menu, entry);
+            detected.push(...result.detected);
+        }
         this._forgetButtons(buttons);
         this._detachUnwanted(wanted);
         this._attachWanted(wanted);
@@ -66,13 +84,39 @@ export class PanelMenuManager {
         if (JSON.stringify(detected) !== JSON.stringify(this._settings.get_strv('detected-extra-menus')))
             this._settings.set_strv('detected-extra-menus', detected);
     }
+    // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): panel sekunder = anak
+    // "panelBox" di uiGroup yang bukan panel utama (pola sama dengan ekstensi
+    // Moveclock).
+    _findSecondaryPanels() {
+        const panels = [];
+        for (const actor of Main.layoutManager.uiGroup.get_children()) {
+            if (actor.get_name() !== 'panelBox')
+                continue;
+            for (const child of actor.get_children()) {
+                if (child === Main.panel)
+                    continue;
+                if (child.statusArea && child._centerBox && child._rightBox) {
+                    panels.push(child);
+                    break;
+                }
+            }
+        }
+        return panels;
+    }
     _discover(panel) {
         const buttons = new Set();
         const wanted = new Map();
         const detected = [];
         const disabled = new Set(this._settings.get_strv('disabled-extra-menus'));
         const enabled = this._settings.get_boolean('enable-extra-menu-glass');
-        const reserved = new Set([panel.statusArea.dateMenu?.menu, panel.statusArea.quickSettings?.menu]);
+        // PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44): menu quick settings
+        // SEMUA panel kini ditangani QuickSettingsManager (primary + clone di
+        // bar sekunder via SecondaryQuickSettingsSync), begitu pula kalender
+        // (bar utama via UIManager root, bar sekunder via clone UIManager
+        // resep menu-*), jadi keduanya selalu dikecualikan di sini. Menu lain
+        // di bar sekunder tetap lewat jalur "menu ekstra" ini.
+        const reserved = new Set([panel.statusArea.quickSettings?.menu]);
+        reserved.add(panel.statusArea.dateMenu?.menu);
         for (const [name, button] of Object.entries(panel.statusArea)) {
             if (!button || !panel.contains(button.container ?? button))
                 continue;

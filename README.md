@@ -63,6 +63,7 @@ MacOs-Fedora44/
 
 - UUID: `appmenu@ChathurangaBW.github.io` (AppMenu v5.7.1).
 - Menampilkan **nama aplikasi yang sedang fokus** (tebal) + menu **File / Edit / View / Go / Window / Help** di sebelah ikon apel.
+- Sejak 16 Okt 2026: menu juga tampil di **bar monitor sekunder** (patch §3.13e).
 - Memakai **menu asli aplikasi** (dbusmenu / GtkActions) bila tersedia; butuh paket `libdbusmenu`.
 - Pintasan pencarian menu: **Ctrl+Space**.
 - Konfigurasi: `show-os-icon=false` (ikon OS dimatikan karena sudah pakai LogoMenu), `show-user-switcher=false`, `lock-to-focused-app=true`, `hide-overview-button=false`.
@@ -72,6 +73,7 @@ MacOs-Fedora44/
 - UUID: `logomenu@aryan_k`.
 - Ikon apel di paling kiri top bar, membuka menu ala Apple.
 - **Sudah dipatch**: klik kiri membuka menu (perbaikan `vfunc_event` pada `extension.js`).
+- Sejak 16 Okt 2026: ikon apel juga tampil di **bar monitor sekunder** (patch §3.13d).
 
 ### 3.4 Dock (ekstensi Dash to Dock)
 
@@ -82,6 +84,8 @@ MacOs-Fedora44/
 
 - **Liquid Glass** (`liquid-glass@thinkingcoding1231.gmail.com`): tint untuk top bar, action center, notifikasi, panel menu, dan dock.
 - **Blur My Shell** (`blur-my-shell@aunetx`, paket Fedora): blur panel/top bar.
+- Bar monitor sekunder ikut dapat blur (Blur My Shell) dengan geometri identik dengan bar utama lewat patch §3.13 (a/b).
+- Sejak 16 Okt 2026: menu popup di bar sekunder (action center, kalender, menu aplikasi) juga mendapat kaca Liquid Glass lewat patch §3.13f.
 - Kombinasi ini menggantikan ekstensi Just Perfection yang sengaja tidak dipakai (RAM mesin hanya 3.7 GB).
 
 ### 3.6 Ekstensi lain
@@ -141,11 +145,40 @@ Catatan: `gtk.css` dan `gtk-dark.css` di folder ini adalah **salinan** `gtk-Ligh
 
 - `wallpapers/2026-10-15-23-44-02-BigSur-wallpaper.jpg` - dipakai untuk desktop, lockscreen, dan screensaver.
 
-### 3.13 Patch ekstensi Top Bar All Monitors (bar monitor sekunder)
+### 3.13 Paritas bar monitor sekunder (patch lokal, 16 Okt 2026)
 
-- File: `gnome-shell/extensions/topbar-all-monitors@fa8i.github.io/extension.js`.
-- Patch lokal: `_syncStyleClass()` tidak hanya meniru *style class* panel utama, tetapi juga **nama/id**-nya (`panel`), supaya seluruh CSS tema ber-selector `#panel` (tinggi 28px, teks putih, gaya MacTahoe, dsb.) ikut berlaku di bar monitor sekunder.
-- **Jangan update ekstensi ini dari extensions.gnome.org tanpa re-patch** - update akan menimpa file dan patch hilang. Salinan yang sudah dipatch disimpan di repo ini untuk restore.
+Semua patch di bawah ini membuat bar top di **monitor sekunder** (dari ekstensi Top Bar All Monitors) tampil dan berperilaku seperti bar monitor utama. Salinan yang sudah dipatch semuanya tersimpan di repo ini (`gnome-shell/extensions/` dan `themes/`).
+
+**a. Ekstensi Top Bar All Monitors** - `gnome-shell/extensions/topbar-all-monitors@fa8i.github.io/extension.js`
+- `_syncStyleClass()` meniru *style class* **dan nama/id** panel utama (`panel`), supaya seluruh CSS tema ber-selector `#panel` (tinggi 28px, teks putih, dsb.) ikut berlaku di bar sekunder.
+- Setelah panel dipublikasikan, ekstensi memanggil API internal **Blur My Shell** (`blur_existing_panels()`, dibungkus try/catch) sebagai jaring pengaman agar panel sekunder ikut di-blur; jalur utama BMS (sinyal `workareas-changed`) biasanya sudah menangkapnya sendiri.
+
+**b. Paritas geometri bar (CSS tema, rev2 16 Okt 2026)** - `themes/MacTahoe-Light/gnome-shell/gnome-shell.css`
+- Blok `.topbar-all-monitors-panel-box #panel`: tinggi panel **34px full-bleed** (tanpa margin; menang spesifisitas atas rule tema `#panel { height: 28px !important }`).
+- `.panel-button`: tinggi 28px + margin 3px atas/bawah; `#panelLeft`/`#panelRight`: padding sisi 10px (margin 6 + padding 4). Semua persis meniru tata letak `_applyLayout` Liquid Glass yang dipakai bar utama, sehingga posisi ikon apel, tombol kanan, dan tinggi bar terukur identik piksel.
+- Latar belakang (blur gelap) kedua bar 100% dari Blur My Shell. Catatan rev2: pendekatan pill rev1 (margin 3/6 + tint putih 0.45) dibuang karena BMS memotong area blur persis sebesar persegi panel - margin membuat celah wallpaper di tepi bar yang tampak "mengambang".
+
+**c. Moveclock** - `gnome-shell/extensions/moveclock@kuvaus.org/extension.js`
+- Jam + status menu ikut dipindah ke kanan di bar sekunder; diterapkan ulang saat startup selesai / monitor berubah; dipulihkan saat disable.
+
+**d. LogoMenu** - `gnome-shell/extensions/logomenu@aryan_k/extension.js`
+- Ikon apel dipasang di tiap bar sekunder; tombol Activities tiap bar mengikuti setelan `show-activities-button` (default: disembunyikan).
+
+**e. AppMenu** - `gnome-shell/extensions/appmenu@ChathurangaBW.github.io/`
+- `menuManager.js`: `MenuManager` menerima parameter panel (default `Main.panel`) sehingga bisa dipasang di panel mana pun.
+- `extension.js`: satu `MenuManager` tambahan per bar sekunder; menu disinkronkan setiap jendela fokus berganti; dibersihkan saat panel hilang / ekstensi di-disable.
+
+**f. Liquid Glass (kaca menu bar sekunder)** - `gnome-shell/extensions/liquid-glass@thinkingcoding1231.gmail.com/` (`extension.js`, `dist/quickSettingsManager.js`, `dist/panelMenuManager.js`)
+- Akar masalah: LG hanya memproses `Main.panel` (bar utama). Menu di bar sekunder adalah instance terpisah yang dibuat shell untuk tiap panel, jadi tidak pernah diproses dan tampak transparan — tema sendiri menyetel `.quick-settings { background-color: rgba(0, 0, 0, 0.01) }`; latar putih action center di bar utama datang dari kaca LG, bukan dari tema.
+- **Action center (quick settings) bar sekunder di-clone persis dari bar utama**: `QuickSettingsManager` menerima parameter menu opsional, dan `SecondaryQuickSettingsSync` (kelas baru di file yang sama) membuat satu instance penuh per menu QS clone di bar sekunder. Karena membaca setelan yang sama (`quick-settings-*`), hasilnya identik dengan bar utama: tint `#ffffff` 0.45, blur 10, radius 30, expand 12, y-offset 17, animasi spring.
+- **Kalender bar sekunder juga di-clone dari bar utama**: satu instance `UIManager` resep `menu-*` (tint 0.20, blur 8, radius 24, expand 12, y-offset 17) per kalender sekunder, tanpa menulis CSS accent/settled-height (itu milik instance bar utama).
+- **Pemicu sync (rev3, perbaikan kasus yang sempat gagal)**: mengikuti pola `PanelMenuManager` — `child-added`/`child-removed` pada kotak panel bar utama, `startup-complete`, `monitors-changed`, `extension-state-changed` — plus 5 percobaan berjeda (1,5/3/6/12/25 dtk). Wajib begitu karena panel sekunder baru dibuat saat `startup-complete` dan box-nya baru dinamai `panelBox` setelah alokasi pertama (`_publishPanel` di Top Bar All Monitors); percobaan tunggal di awal startup selalu meleset dan keliru tidak pernah dicoba lagi.
+- `PanelMenuManager` memindai panel sekunder untuk menu **selain** quick settings & kalender (menu apel, menu aplikasi, dll.) via kaca "menu ekstra" `panel-menu-*`; quick settings **dan kalender** selalu dikecualikan dari jalur itu di semua panel agar tidak dobel kaca.
+- Status attach/gagal ditulis ke journal (tidak senyap): `[Liquid Glass] Kaca quick settings bar sekunder terpasang (1 menu)` dan `Kaca kalender bar sekunder terpasang (1 menu)`; bila gagal, alasannya ikut tercetak.
+- Bar utama tidak diubah (blok `reserved` bar utama tetap = kalender + quick settings, hasil identik dengan aslinya).
+- **Penting: patch ini baru aktif setelah logout/login** — kode ekstensi di-cache selama sesi berjalan; disable/enable saja tidak memuat ulang kode (sudah diuji).
+
+> **Jangan update ekstensi-ekstensi ini (termasuk Liquid Glass sejak patch f) dari extensions.gnome.org tanpa re-patch** - update akan menimpa file dan patch hilang. Salinan yang sudah dipatch tersimpan di repo ini untuk restore.
 
 ---
 
@@ -289,4 +322,8 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Fix dialog Files/Nautilus di GNOME 50 (dialog overlay transparan, popup jadi kartu melayang) |
 | 16 Okt 2026 | Top bar tampil di semua monitor (ekstensi Top Bar All Monitors) |
 | 16 Okt 2026 | Patch Top Bar All Monitors: gaya tema (#panel) ikut berlaku di bar monitor sekunder |
+| 16 Okt 2026 | Bar monitor sekunder: patch Moveclock (jam ke kanan), LogoMenu (ikon apel), AppMenu (menu bar) |
+| 16 Okt 2026 | Bar monitor sekunder rev2: geometri paritas penuh (panel full-bleed 34px, tombol 28px + margin 3, padding sisi 10px) + pemicu blur Blur My Shell |
+| 16 Okt 2026 | Patch Liquid Glass: action center bar monitor sekunder di-clone identik dari bar utama (`QuickSettingsManager` satu instance per menu) + menu lain via pemindaian semua panel (aktif setelah logout/login) |
+| 16 Okt 2026 | Bar monitor sekunder rev3 (fix): pemicu clone Liquid Glass mengikuti PanelMenuManager + 5 percobaan berjeda — panel sekunder baru dinamai `panelBox` setelah alokasi pertama, sehingga percobaan tunggal awal startup selalu meleset; kalender sekunder kini di-clone resep `menu-*`; QS + kalender dikecualikan dari jalur menu ekstra di semua panel; status attach ditulis ke journal (aktif setelah logout/login) |
 # macos-fedora44

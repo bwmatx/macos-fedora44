@@ -89,6 +89,8 @@ class SecondaryPanelBox {
     constructor(monitorIndex, monitor) {
         this.monitorIndex = monitorIndex;
         this._publishIdleId = 0;
+        // PATCH LOKAL (2026-10-16): id timeout "jaring pengaman" blur BMS.
+        this._blurMyShellId = 0;
 
         this.actor = new St.BoxLayout({
             name: 'topbarAllMonitorsPanelBox',
@@ -141,12 +143,46 @@ class SecondaryPanelBox {
             affectsStruts: true,
             trackFullscreen: true,
         });
+
+        // PATCH LOKAL (2026-10-16): minta Blur My Shell menambahkan efek kaca
+        // pada bar ini. Jalur utama BMS (sinyal workareas-changed setelah strut
+        // berubah) biasanya sudah menangkapnya; ini jaring pengaman bila urutan
+        // startup-nya berbeda.
+        this._triggerBlurMyShell();
+    }
+
+    _triggerBlurMyShell() {
+        if (this._blurMyShellId)
+            GLib.Source.remove(this._blurMyShellId);
+
+        this._blurMyShellId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            this._blurMyShellId = 0;
+
+            try {
+                const bms = Main.extensionManager
+                    ?.lookup('blur-my-shell@aunetx')?.stateObj;
+                const panelBlur = bms?._panel_blur;
+
+                // Hanya bila blur panel BMS memang aktif (menghormati setelan).
+                if (panelBlur?.enabled)
+                    panelBlur.blur_existing_panels();
+            } catch (e) {
+                // BMS tidak terpasang / API-nya berubah: lewati tanpa error.
+            }
+
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     destroy() {
         if (this._publishIdleId) {
             GLib.Source.remove(this._publishIdleId);
             this._publishIdleId = 0;
+        }
+
+        if (this._blurMyShellId) {
+            GLib.Source.remove(this._blurMyShellId);
+            this._blurMyShellId = 0;
         }
 
         this.panel.destroy();

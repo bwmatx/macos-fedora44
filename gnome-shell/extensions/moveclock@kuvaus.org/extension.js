@@ -1,67 +1,141 @@
 // Copyright (C) 2024 kuvaus
 // Licence: GPLv3
+//
+// PATCH LOKAL (2026-10-16, bwmatx/macos-fedora44):
+// Susunan yang sama (dateMenu/jam & status menu pindah ke kanan) kini
+// diterapkan juga ke bar top monitor sekunder buatan ekstensi
+// "Top Bar All Monitors". Tambahan: penerapan ulang otomatis saat
+// startup selesai / monitor berubah, dan pemulihan untuk semua panel
+// saat disable.
 
-import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 export default class MoveClockAndStatusMenu extends Extension {
-    _init() {
-        this._dateMenu = null;
-        this._statusMenu = null;
-        this._settings = null;
-    }
-
     enable() {
         this._settings = this.getSettings();
-        let centerBox = Main.panel._centerBox;
-        let rightBox = Main.panel._rightBox;
-        let dateMenu = Main.panel.statusArea['dateMenu'];
-        let statusMenu = Main.panel.statusArea['quickSettings'];
-        let children = centerBox.get_children();
-        let clockBeforeStatusMenu = this._settings.get_boolean('clock-before-statusmenu');
+        this._clockBeforeStatusMenu = this._settings.get_boolean('clock-before-statusmenu');
+        this._idleId = 0;
 
-        // Store references to the dateMenu and statusMenu for later use
-        this._dateMenu = dateMenu;
-        this._statusMenu = statusMenu;
+        // Panel sekunder bisa belum ada saat enable(); terapkan lagi setelah
+        // sesi selesai start dan setiap kali tata letak monitor berubah.
+        Main.layoutManager.connectObject(
+            'startup-complete', () => this._scheduleApply(),
+            'monitors-changed', () => this._scheduleApply(),
+            this
+        );
 
-        // Move the dateMenu to the rightBox
-        if (children.indexOf(dateMenu.container) != -1) {
-            centerBox.remove_child(dateMenu.container);
-            // Move the dateMenu to the rightBox after statusMenu
-            if (!clockBeforeStatusMenu) { rightBox.add_child(dateMenu.container); }
-            // Move the dateMenu to the rightBox before statusMenu
-            else { rightBox.insert_child_at_index(dateMenu.container, rightBox.get_children().length - 1); }
-        }
-
-        // Move the statusMenu to just before the dateMenu in the rightBox
-        let statusMenuIndex = children.indexOf(statusMenu.container);
-        if (statusMenuIndex != -1 && !clockBeforeStatusMenu) {
-            centerBox.remove_child(statusMenu.container);
-            rightBox.insert_child_at_index(statusMenu.container, rightBox.get_children().length - 1);
-        }
+        this._scheduleApply();
     }
 
     disable() {
-        let centerBox = Main.panel._centerBox;
-        let rightBox = Main.panel._rightBox;
+        Main.layoutManager.disconnectObject(this);
 
-        // Move the dateMenu back to the centerBox
-        if (rightBox.get_children().indexOf(this._dateMenu.container) != -1) {
-            rightBox.remove_child(this._dateMenu.container);
-            centerBox.add_child(this._dateMenu.container);
+        if (this._idleId) {
+            GLib.Source.remove(this._idleId);
+            this._idleId = 0;
         }
 
-        // Move the statusMenu back to the rightBox
-        if (rightBox.get_children().indexOf(this._statusMenu.container) != -1) {
-            rightBox.remove_child(this._statusMenu.container);
-            rightBox.add_child(this._statusMenu.container);
-        }
+        this._restorePanel(Main.panel);
 
-        //cleanup
+        for (const panel of this._findSecondaryPanels())
+            this._restorePanel(panel);
+
         this._settings = null;
-        this._dateMenu = null;
-        this._statusMenu = null;
+    }
+
+    _scheduleApply() {
+        if (this._idleId)
+            return;
+
+        // Tunggu satu putaran idle: panel sekunder baru dipublikasikan
+        // (nama "panelBox") beberapa idle setelah dibuat.
+        this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._idleId = 0;
+
+            this._applyPanel(Main.panel);
+
+            for (const panel of this._findSecondaryPanels())
+                this._applyPanel(panel);
+
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _findSecondaryPanels() {
+        const panels = [];
+
+        for (const actor of Main.layoutManager.uiGroup.get_children()) {
+            const name = actor.get_name();
+            if (name !== 'panelBox' && name !== 'topbarAllMonitorsPanelBox')
+                continue;
+
+            // Cari aktor panel di dalam box (setelah di-blur BMS, box berisi
+            // 2 anak: grup background blur + panel).
+            for (const child of actor.get_children()) {
+                if (child === Main.panel)
+                    continue;
+                if (child.statusArea && child._centerBox && child._rightBox) {
+                    panels.push(child);
+                    break;
+                }
+            }
+        }
+
+        return panels;
+    }
+
+    _applyPanel(panel) {
+        const centerBox = panel?._centerBox;
+        const rightBox = panel?._rightBox;
+        const dateMenu = panel?.statusArea?.['dateMenu'];
+        const statusMenu = panel?.statusArea?.['quickSettings'];
+
+        if (!centerBox || !rightBox || !dateMenu || !statusMenu)
+            return;
+
+        // Pindahkan dateMenu (jam) dari centerBox ke rightBox.
+        if (dateMenu.container.get_parent() === centerBox) {
+            centerBox.remove_child(dateMenu.container);
+
+            if (!this._clockBeforeStatusMenu) {
+                // Setelah status menu (paling kanan).
+                rightBox.add_child(dateMenu.container);
+            } else {
+                // Tepat sebelum status menu.
+                rightBox.insert_child_at_index(dateMenu.container,
+                    Math.max(0, rightBox.get_children().length - 1));
+            }
+        }
+
+        // Pindahkan status menu tepat sebelum jam (bila sebelumnya di centerBox).
+        if (!this._clockBeforeStatusMenu && statusMenu.container.get_parent() === centerBox) {
+            centerBox.remove_child(statusMenu.container);
+            rightBox.insert_child_at_index(statusMenu.container,
+                Math.max(0, rightBox.get_children().length - 1));
+        }
+    }
+
+    _restorePanel(panel) {
+        const centerBox = panel?._centerBox;
+        const rightBox = panel?._rightBox;
+        const dateMenu = panel?.statusArea?.['dateMenu'];
+        const statusMenu = panel?.statusArea?.['quickSettings'];
+
+        if (!centerBox || !rightBox || !dateMenu || !statusMenu)
+            return;
+
+        // Kembalikan jam ke centerBox.
+        if (dateMenu.container.get_parent() === rightBox) {
+            rightBox.remove_child(dateMenu.container);
+            centerBox.add_child(dateMenu.container);
+        }
+
+        // Normalkan kembali posisi status menu di rightBox.
+        if (statusMenu.container.get_parent() === rightBox) {
+            rightBox.remove_child(statusMenu.container);
+            rightBox.add_child(statusMenu.container);
+        }
     }
 }
-

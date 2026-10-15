@@ -5474,3 +5474,34 @@ StWidget.focused .app-grid-running-dot {
 .slider:active {
   -barlevel-active-background-color: #ffffff !important;
 }
+
+/* === Bar sekunder: paritas geometri dgn bar utama (2026-10-16 rev2) === */
+/* Geometri mengikuti layout bar utama (Liquid Glass): tinggi panel total 34px,
+   tombol 28px + margin 3px atas/bawah. Latar belakang (blur kaca) 100% dari
+   Blur My Shell - sama seperti bar utama; tanpa margin/radius/tint lokal
+   supaya tidak ada celah wallpaper ("mengambang"). */
+.topbar-all-monitors-panel-box #panel {
+  height: 34px !important;
+  min-height: 34px !important;
+}
+
+.topbar-all-monitors-panel-box #panel .panel-button {
+  height: 28px !important;
+  margin-top: 3px !important;
+  margin-bottom: 3px !important;
+}
+
+/* Padding sisi kotak kiri/kanan (margin 6 + padding 4 = 10px) & kotak tengah,
+   meniru _applyLayout Liquid Glass di bar utama - supaya posisi ikon apel dan
+   ikon kanan sejajar persis dengan bar primer. */
+.topbar-all-monitors-panel-box #panel #panelLeft {
+  padding: 0px 0px 0px 10px !important;
+}
+
+.topbar-all-monitors-panel-box #panel #panelRight {
+  padding: 0px 10px 0px 0px !important;
+}
+
+.topbar-all-monitors-panel-box #panel #panelCenter {
+  padding: 0px !important;
+}
