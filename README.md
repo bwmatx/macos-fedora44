@@ -93,6 +93,7 @@ MacOs-Fedora44/
 | Moveclock | `moveclock@kuvaus.org` | Memindah posisi jam |
 | Background Logo | `background-logo@fedorahosted.org` | Logo di latar desktop (paket Fedora) |
 | User Theme | `user-theme@gnome-shell-extensions.gcampax.github.com` | Memuat tema shell dari `~/.themes` |
+| Top Bar All Monitors | `topbar-all-monitors@fa8i.github.io` | Top bar fungsional (Activities, jam, kalender, Quick Settings) di semua monitor |
 
 ### 3.7 Tema GTK4 + patch khusus (penting)
 
@@ -280,4 +281,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Top bar 28 px + teks putih + ikon action center gelap |
 | 16 Okt 2026 | Fix sintaks `color-mix()` (6 error parser GTK4) |
 | 16 Okt 2026 | Fix dialog Files/Nautilus di GNOME 50 (dialog overlay transparan, popup jadi kartu melayang) |
+| 16 Okt 2026 | Top bar tampil di semua monitor (ekstensi Top Bar All Monitors) |
 # macos-fedora44
