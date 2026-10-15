@@ -32,6 +32,12 @@ const SecondaryPanel = GObject.registerClass({
 
     _syncStyleClass() {
         this.set_style_class_name(Main.panel.get_style_class_name());
+
+        // PATCH LOKAL (2026-10-16): tiru juga id/nama "panel" dari panel utama,
+        // supaya CSS tema ber-selector #panel (tinggi 28px, teks putih, gaya
+        // MacTahoe, dsb.) ikut berlaku di bar monitor sekunder.
+        if (this.get_name() !== Main.panel.get_name())
+            this.set_name(Main.panel.get_name());
     }
 
     vfunc_get_preferred_width(_forHeight) {

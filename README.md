@@ -141,6 +141,12 @@ Catatan: `gtk.css` dan `gtk-dark.css` di folder ini adalah **salinan** `gtk-Ligh
 
 - `wallpapers/2026-10-15-23-44-02-BigSur-wallpaper.jpg` - dipakai untuk desktop, lockscreen, dan screensaver.
 
+### 3.13 Patch ekstensi Top Bar All Monitors (bar monitor sekunder)
+
+- File: `gnome-shell/extensions/topbar-all-monitors@fa8i.github.io/extension.js`.
+- Patch lokal: `_syncStyleClass()` tidak hanya meniru *style class* panel utama, tetapi juga **nama/id**-nya (`panel`), supaya seluruh CSS tema ber-selector `#panel` (tinggi 28px, teks putih, gaya MacTahoe, dsb.) ikut berlaku di bar monitor sekunder.
+- **Jangan update ekstensi ini dari extensions.gnome.org tanpa re-patch** - update akan menimpa file dan patch hilang. Salinan yang sudah dipatch disimpan di repo ini untuk restore.
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -282,4 +288,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Fix sintaks `color-mix()` (6 error parser GTK4) |
 | 16 Okt 2026 | Fix dialog Files/Nautilus di GNOME 50 (dialog overlay transparan, popup jadi kartu melayang) |
 | 16 Okt 2026 | Top bar tampil di semua monitor (ekstensi Top Bar All Monitors) |
+| 16 Okt 2026 | Patch Top Bar All Monitors: gaya tema (#panel) ikut berlaku di bar monitor sekunder |
 # macos-fedora44
