@@ -204,6 +204,29 @@ rm -f ~/.var/app/*/config/dconf ~/.var/app/*/data/icons
 rm -rf ~/.local/share/flatpak-dconf
 ```
 
+### 3.15 Ikon desktop ala Windows: Desktop Icons NG / DING (17 Okt 2026)
+
+GNOME/Fedora tidak punya ikon desktop bawaan. Solusinya ekstensi **Desktop Icons NG (DING)** - ekstensi yang sama dipakai Ubuntu secara default. Fedora 44 tidak memaketkannya, jadi dipasang dari extensions.gnome.org: **GNOME 50 -> DING v99** (`version_tag=75576`).
+
+Yang didapat: file dengan ekstensi apa pun (gambar, PDF, dokumen, arsip) tampil di desktop dan dobel-klik membuka dengan aplikasi default; shortcut aplikasi (`.desktop`) tampil beserta ikonnya; folder Home dan Trash ikut tampil (ikon drive/HDD sengaja dimatikan); klik-kanan menyediakan **New Folder**, Rename, Properties, dan menu desktop lainnya.
+
+- **Penting (temuan saat pemasangan)**: menaruh folder ekstensi langsung ke `~/.local/share/gnome-shell/extensions/` **tidak cukup pada sesi yang sedang berjalan** - shell GNOME 50 tidak memindai folder ekstensi baru (`gnome-extensions enable` gagal dengan "does not exist"). Cara yang terbukti berhasil tanpa logout: minta shell mendaftarkan sendiri lewat D-Bus (mekanisme yang sama dengan tombol install di extensions.gnome.org):
+  ```bash
+  gdbus call --session --dest org.gnome.Shell.Extensions \
+    --object-path /org/gnome/Shell/Extensions \
+    --method org.gnome.Shell.Extensions.InstallRemoteExtension "ding@rastersoft.com"
+  ```
+  Setelah itu `gnome-extensions enable ding@rastersoft.com` berhasil. Alternatif paling sederhana: logout lalu login sekali.
+- **Shortcut aplikasi**: `bash scripts/buat-shortcut-desktop.sh brave` (tanpa argumen = daftar aplikasi yang bisa dipilih). Skrip menyalin `.desktop` ke `~/Desktop`, `chmod 755`, dan menandai `metadata::trusted=true` - syarat GNOME/DING agar shortcut hasil salinan boleh diluncurkan (di kode DING: `app/fileItem.js` membaca atribut `metadata::trusted`). Yang sudah dipasang di desktop: **Brave**, **Files (Nautilus)**, **Terminal (Ptyxis)**.
+- **Preferensi DING** (ukuran ikon, warna teks label, urutan, tampil/tidaknya Home/Trash/drive): aplikasi **Extensions -> Desktop Icons NG (DING) -> Preferences**. Lewat CLI perlu `GSETTINGS_SCHEMA_DIR` karena skema ekstensi tidak terpasang di jalur standar:
+  ```bash
+  GSETTINGS_SCHEMA_DIR=~/.local/share/gnome-shell/extensions/ding@rastersoft.com/schemas \
+    gsettings list-recursively org.gnome.shell.extensions.ding
+  ```
+  Setelan awal (dipasang skrip): `show-home`/`show-trash=true`, `show-volumes=false` (ikon HDD/drive tidak tampil), `start-corner=top-left`, `arrangeorder=NAME`, `icon-size=standard`.
+- Salinan ekstensi tersimpan di repo (`gnome-shell/extensions/ding@rastersoft.com/`) supaya restore tidak mengunduh ulang; pasang ulang semuanya: `bash scripts/desktop-icons-setup.sh` (idempoten). Kalau DING pernah di-update dari EGO, perbarui juga salinan di repo dengan menyalin ulang folder ekstensinya.
+- **Bongkar**: `gnome-extensions uninstall ding@rastersoft.com` (logout/login bila perlu); shortcut di `~/Desktop` aman dihapus manual.
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -329,6 +352,7 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | Compiz-alike Magic Lamp | extensions.gnome.org (uuid `compiz-alike-magic-lamp-effect@hermes83.github.com`) |
 | Blur My Shell | github.com/aunetx/blur-my-shell (paket Fedora) |
 | Dash to Dock | github.com/micheleg/dash-to-dock (paket Fedora) |
+| Desktop Icons NG (DING) | extensions.gnome.org (uuid `ding@rastersoft.com`) - gitlab.com/rastersoft/desktop-icons-ng |
 
 ---
 
@@ -352,4 +376,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Bar monitor sekunder rev3 (fix): pemicu clone Liquid Glass mengikuti PanelMenuManager + 5 percobaan berjeda — panel sekunder baru dinamai `panelBox` setelah alokasi pertama, sehingga percobaan tunggal awal startup selalu meleset; kalender sekunder kini di-clone resep `menu-*`; QS + kalender dikecualikan dari jalur menu ekstra di semua panel; status attach ditulis ke journal (aktif setelah logout/login) |
 | 16 Okt 2026 | Dock: intelligent autohide — tampil di desktop, sembunyi hanya saat jendela aplikasi menutupi area dock (`intellihide=true`, mode `FOCUS_APPLICATION_WINDOWS`) |
 | 16 Okt 2026 | Tema & tombol Flatpak seragam: izin berbagi tema/ikon/dconf (`override --user`), modul dconf sandbox di `~/.local/share/flatpak-dconf` (salinan bundel Brave + fallback host), symlink dconf/ikon per aplikasi - aplikasi GTK Flatpak ikut MacTahoe (verbatim dconf host). Catatan: suite Storyteller (egui) menggambar tombol sendiri; Brave perlu "Use system title bar and borders" |
+| 17 Okt 2026 | Ikon desktop ala Windows: DING v99 (GNOME 50) aktif - file ekstensi apa pun tampil & terbuka dari desktop, shortcut aplikasi (Brave/Files/Terminal) via `buat-shortcut-desktop.sh` + trust `metadata::trusted`; catatan: shell GNOME 50 tidak memindai folder ekstensi baru saat sesi berjalan (perlu `InstallRemoteExtension` via D-Bus, terbukti berhasil, atau logout) |
 # macos-fedora44
