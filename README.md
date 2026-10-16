@@ -181,6 +181,29 @@ Semua patch di bawah ini membuat bar top di **monitor sekunder** (dari ekstensi 
 
 > **Jangan update ekstensi-ekstensi ini (termasuk Liquid Glass sejak patch f) dari extensions.gnome.org tanpa re-patch** - update akan menimpa file dan patch hilang. Salinan yang sudah dipatch tersimpan di repo ini untuk restore.
 
+### 3.14 Tema & tombol jendela untuk aplikasi Flatpak (16 Okt 2026)
+
+Aplikasi Flatpak (sandbox) tidak otomatis ikut tema karena tiga hal: (1) `~/.themes`, `~/.local/share/icons`, dan `~/.config/dconf` tidak terlihat di dalam sandbox; (2) runtime `org.freedesktop.Platform` tidak menyediakan modul GIO `libdconfsettings.so`, sehingga GSettings di sandbox jatuh ke backend keyfile (tema kembali ke Adwaita); (3) di sandbox, `XDG_CONFIG_HOME`/`XDG_DATA_HOME` diarahkan ke `~/.var/app/<id>/...`, jadi dconf dan ikon tidak membaca lokasi standar host.
+
+Semua perbaikan dipasang oleh `scripts/flatpak-theme-setup.sh` (idempoten, aman diulang):
+
+- **Izin berbagi** (`flatpak override --user`): `~/.themes:ro`, `~/.local/share/icons:ro`, `~/.config/dconf:ro`, `xdg-run/dconf`, `~/.local/share/flatpak-dconf:ro`, plus `--talk-name=ca.desrt.dconf` agar penulisan setelan tetap lewat service dconf host.
+- **Modul dconf untuk sandbox**: `libdconfsettings.so` + `libdconf.so.1` disalin dari bundel Brave (dibangun untuk runtime 25.08 yang sama) ke `~/.local/share/flatpak-dconf/`, lalu diaktifkan lewat `GIO_EXTRA_MODULES` + `LD_LIBRARY_PATH`; fallback salinan paket dconf host (`/usr/lib64`).
+- **Symlink per aplikasi** di `~/.var/app/<id>/`: `config/dconf -> ~/.config/dconf` dan `data/icons -> ~/.local/share/icons` (menyiasati redirect XDG di atas).
+
+**Hasil (terverifikasi)** - `gsettings` di dalam sandbox wordcraft/photocraft/gridcraft mengembalikan `gtk-theme=MacTahoe-Light`, `icon-theme=MacTahoe-light`, `button-layout=close,minimize,maximize:`. Aplikasi GTK Flatpak ikut tema, ikon, kursor, dan tombol mac di kiri, dan tetap sinkron terang/gelap karena membaca dconf host secara langsung (tanpa salin). Catatan: `com.brave.Browser` tidak diberi symlink dconf karena Brave sudah membawa modul dconf sendiri dan membaca dconf host - jangan diubah.
+
+**Batasan**: aplikasi yang menggambar kontrol jendelanya sendiri tidak bisa ikut tema sistem. Suite Storyteller (wordcraft/photocraft/gridcraft) berbasis egui - tombol jendelanya UI internal aplikasi (di luar jangkauan tema GTK; sudah dibuktikan lewat tangkapan layar). Untuk Brave: agar frame jendela memakai tombol mac, aktifkan **Settings -> Appearance -> "Use system title bar and borders"** lalu restart Brave.
+
+```bash
+bash scripts/flatpak-theme-setup.sh   # pasang ulang (idempoten)
+
+# membongkar (kembali ke default Flatpak):
+flatpak override --user --reset
+rm -f ~/.var/app/*/config/dconf ~/.var/app/*/data/icons
+rm -rf ~/.local/share/flatpak-dconf
+```
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -328,4 +351,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Patch Liquid Glass: action center bar monitor sekunder di-clone identik dari bar utama (`QuickSettingsManager` satu instance per menu) + menu lain via pemindaian semua panel (aktif setelah logout/login) |
 | 16 Okt 2026 | Bar monitor sekunder rev3 (fix): pemicu clone Liquid Glass mengikuti PanelMenuManager + 5 percobaan berjeda — panel sekunder baru dinamai `panelBox` setelah alokasi pertama, sehingga percobaan tunggal awal startup selalu meleset; kalender sekunder kini di-clone resep `menu-*`; QS + kalender dikecualikan dari jalur menu ekstra di semua panel; status attach ditulis ke journal (aktif setelah logout/login) |
 | 16 Okt 2026 | Dock: intelligent autohide — tampil di desktop, sembunyi hanya saat jendela aplikasi menutupi area dock (`intellihide=true`, mode `FOCUS_APPLICATION_WINDOWS`) |
+| 16 Okt 2026 | Tema & tombol Flatpak seragam: izin berbagi tema/ikon/dconf (`override --user`), modul dconf sandbox di `~/.local/share/flatpak-dconf` (salinan bundel Brave + fallback host), symlink dconf/ikon per aplikasi - aplikasi GTK Flatpak ikut MacTahoe (verbatim dconf host). Catatan: suite Storyteller (egui) menggambar tombol sendiri; Brave perlu "Use system title bar and borders" |
 # macos-fedora44
