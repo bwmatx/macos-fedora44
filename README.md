@@ -410,3 +410,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 17 Okt 2026 | Fix flicker ikon desktop (DING) saat pointer masuk dock: patch dash-to-dock v105 `_updateVisibleDesktop()` (berhenti kirim margin transien saat hover + pembulatan piksel) via skrip idempoten `scripts/fix-ding-dock-flicker.sh` (backup `docking.js.d2d-orig`, ada `--revert`; jalankan ulang setelah `dnf update` dash-to-dock). Verifikasi: 0 perubahan margin & 0 rebuild grid selama hover (sebelumnya 168/jam, puncak 52/menit) |
 | 17 Okt 2026 | Verifikasi pasca-mitigasi beku: App Grid via F4 dibuka ulang -> aman (tidak beku lagi); jurnal boot bersih dari penanda hang (0 `libinput too slow`, 0 SIGSEGV, 0 OOM, 0 soft lockup) & banjir `nouveau fifo: PBDMA0` berhenti total sejak RustDesk dinonaktifkan (1.789 error semuanya dalam 1 menit saat RustDesk masih hidup) |
 # macos-fedora44
+
+**© 2026 Adhiwibowo** - Portofolio: [adhiwibowo.my.id](https://adhiwibowo.my.id)
