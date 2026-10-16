@@ -79,6 +79,7 @@ MacOs-Fedora44/
 
 - UUID: `dash-to-dock@micxgx.gmail.com` (paket Fedora `gnome-shell-extension-dash-to-dock`).
 - Posisi, ukuran, dan perilaku dock diatur lewat dconf (tersimpan di `dconf/org.gnome.ini`).
+- Sejak 16 Okt 2026: **intelligent autohide** (`intellihide=true`, mode `FOCUS_APPLICATION_WINDOWS`) — dock tampil di desktop (tidak ada jendela menutupi) dan sembunyi otomatis hanya saat jendela aplikasi menutupi area dock; muncul lagi saat kursor menyentuh tepi bawah layar.
 
 ### 3.5 Efek kaca (Liquid Glass + Blur My Shell)
 
@@ -326,4 +327,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Bar monitor sekunder rev2: geometri paritas penuh (panel full-bleed 34px, tombol 28px + margin 3, padding sisi 10px) + pemicu blur Blur My Shell |
 | 16 Okt 2026 | Patch Liquid Glass: action center bar monitor sekunder di-clone identik dari bar utama (`QuickSettingsManager` satu instance per menu) + menu lain via pemindaian semua panel (aktif setelah logout/login) |
 | 16 Okt 2026 | Bar monitor sekunder rev3 (fix): pemicu clone Liquid Glass mengikuti PanelMenuManager + 5 percobaan berjeda — panel sekunder baru dinamai `panelBox` setelah alokasi pertama, sehingga percobaan tunggal awal startup selalu meleset; kalender sekunder kini di-clone resep `menu-*`; QS + kalender dikecualikan dari jalur menu ekstra di semua panel; status attach ditulis ke journal (aktif setelah logout/login) |
+| 16 Okt 2026 | Dock: intelligent autohide — tampil di desktop, sembunyi hanya saat jendela aplikasi menutupi area dock (`intellihide=true`, mode `FOCUS_APPLICATION_WINDOWS`) |
 # macos-fedora44
