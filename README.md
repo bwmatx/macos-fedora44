@@ -412,3 +412,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 # macos-fedora44
 
 **© 2026 Adhiwibowo** - Portofolio: [adhiwibowo.my.id](https://adhiwibowo.my.id)
+
+Lisensi: [GPL-3.0](LICENSE). Komponen pihak ketiga yang ikut disalin (ekstensi GNOME, tema, ikon) tetap mengikuti lisensi aslinya masing-masing.
