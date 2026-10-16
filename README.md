@@ -239,6 +239,21 @@ Tindakan yang dipasang - idempoten lewat `bash scripts/stabilitas-setup.sh` (bag
 
 Temuan lain (belum diubah, menunggu keputusan): `gnome-software` memakai CPU ~5% terus setelah boot; **±6 detik pertama log boot menampilkan jam +7 jam** karena kernel membaca RTC (yang berisi waktu lokal) sebagai UTC - lalu systemd menerapkan koreksi -420 menit dan chronyd sinkron sehingga jam akhirnya benar (`RTC in local TZ: yes`, efek dual-boot Windows; perbaikan permanen opsional: `timedatectl set-local-rtc 0` + Windows disetel RTC=UTC); `glycin-svg` (loader thumbnail GNOME) pernah crash berulang; repo di partisi NTFS (`ntfs-3g`) berat CPU saat operasi git; `swappiness` zram masih 10.
 
+### 3.17 Fix flicker ikon desktop (DING) saat pointer masuk dock (17 Okt 2026)
+
+Gejala: saat pointer menyentuh/menyusuri dock, ikon-ikon desktop berkedip cepat "terbuka-tertutup" selama hover. Root cause (terbukti dari kode + rekaman D-Bus, bukan dugaan):
+
+1. **Dash-to-Dock v105** (`docking.js` -> `_updateVisibleDesktop()`) mengirim tinggi/lebar box dock ke DING pada setiap perubahan alokasi/animasi. Saat hover (animasi tooltip/window preview), nilainya transien dan pecahan - rekaman `gdbus monitor` memperlihatkan `marginBottom` bergoyang `80.0` <-> `~104.29` <-> `~130.7` lalu kembali `80.0` saat pointer menjauh.
+2. **DING** (`app/desktopManager.js` -> `updateGridWindows()`) me-rebuild SELURUH grid ikon desktop bila ada selisih margin sekecil apa pun, termasuk beda pecahan. Bukti jurnal: 168 kali `"Creating desktop index 0"` dalam 1 jam; puncaknya 52 kali dalam semenit (03:42) saat dock disentuh.
+
+Perbaikan - patch kecil di file sistem dash-to-dock (`/usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/docking.js`), DING tidak disentuh sama sekali:
+
+- `_updateVisibleDesktop()`: **berhenti mengirim margin saat `this._box.hover`** (nilai transien tidak pernah bocor) + `Math.round()` tinggi/lebar agar DING hanya melihat nilai utuh yang stabil.
+- Pasang/ulang: `pkexec bash scripts/fix-ding-dock-flicker.sh` - idempoten, backup otomatis `docking.js.d2d-orig`, ada mode `--revert`. **Jalankan ulang setiap kali paket `gnome-shell-extension-dash-to-dock` di-update** (`dnf update`), karena file di `/usr/share` akan tertimpa versi paket.
+- Setelah patch: muat ulang ekstensi (`gnome-extensions disable/enable dash-to-dock@micxgx.gmail.com`) atau logout/login sekali.
+
+Verifikasi (17 Okt ~04:00, sesudah patch): rekaman `gdbus monitor` selama uji hover -> **0 perubahan margin** (sebelum patch nilainya bergoyang terus), jurnal **0 kali `"Creating desktop index"`** (entri terakhir 03:59:51 = momen reload ekstensi; sebelum patch 168/jam), `marginBottom` stabil `80.0`, dan konfirmasi visual: ikon desktop tidak lagi berkedip. Tidak ada perilaku dock lain yang diubah - tooltip, window preview, dan intellihide tetap jalan seperti sebelumnya. Catatan: versi upstream terbaru (v110) masih memakai pengiriman nilai live yang sama, jadi upgrade paket bukan solusi - patch ini yang menutup celah.
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -390,4 +405,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Tema & tombol Flatpak seragam: izin berbagi tema/ikon/dconf (`override --user`), modul dconf sandbox di `~/.local/share/flatpak-dconf` (salinan bundel Brave + fallback host), symlink dconf/ikon per aplikasi - aplikasi GTK Flatpak ikut MacTahoe (verbatim dconf host). Catatan: suite Storyteller (egui) menggambar tombol sendiri; Brave perlu "Use system title bar and borders" |
 | 17 Okt 2026 | Ikon desktop ala Windows: DING v99 (GNOME 50) aktif - file ekstensi apa pun tampil & terbuka dari desktop, shortcut aplikasi (Brave/Files/Terminal) via `buat-shortcut-desktop.sh` + trust `metadata::trusted`; catatan: shell GNOME 50 tidak memindai folder ekstensi baru saat sesi berjalan (perlu `InstallRemoteExtension` via D-Bus, terbukti berhasil, atau logout) |
 | 17 Okt 2026 | Stabilitas & mitigasi beku (17 Okt 03:10 - layar diam tapi kursor masih bisa bergerak): RustDesk `disable --now` (sumber 1.789 error `nouveau fifo: PBDMA0` pada boot tersebut; laptop ini bukan target remote), blur Blur My Shell jalur berat OFF (`overview` = latar App Grid/Overview + `appfolder`; top bar/lockscreen/alt-tab tetap ON), SysRq `kernel.sysrq=1` via `config/sysctl.d/99-sysrq-reisub.conf` (REISUB darurat pengganti power button) - semua idempoten lewat `scripts/stabilitas-setup.sh` |
+| 17 Okt 2026 | Fix flicker ikon desktop (DING) saat pointer masuk dock: patch dash-to-dock v105 `_updateVisibleDesktop()` (berhenti kirim margin transien saat hover + pembulatan piksel) via skrip idempoten `scripts/fix-ding-dock-flicker.sh` (backup `docking.js.d2d-orig`, ada `--revert`; jalankan ulang setelah `dnf update` dash-to-dock). Verifikasi: 0 perubahan margin & 0 rebuild grid selama hover (sebelumnya 168/jam, puncak 52/menit) |
 # macos-fedora44
