@@ -227,6 +227,18 @@ Yang didapat: file dengan ekstensi apa pun (gambar, PDF, dokumen, arsip) tampil 
 - Salinan ekstensi tersimpan di repo (`gnome-shell/extensions/ding@rastersoft.com/`) supaya restore tidak mengunduh ulang; pasang ulang semuanya: `bash scripts/desktop-icons-setup.sh` (idempoten). Kalau DING pernah di-update dari EGO, perbarui juga salinan di repo dengan menyalin ulang folder ekstensinya.
 - **Bongkar**: `gnome-extensions uninstall ding@rastersoft.com` (logout/login bila perlu); shortcut di `~/Desktop` aman dihapus manual.
 
+### 3.16 Stabilitas & penghematan beban (17 Okt 2026)
+
+Diagnosis beku 17 Okt ~03:10 (boot sebelum reboot): layar diam total **tetapi kursor masih bisa bergerak** - khas hang jalur grafis/kompositor, bukan OOM/kernel panic (tidak ada OOM-kill, panic, atau softlockup di jurnal; jurnal berhenti mendadak lalu daya dipotong). Konteks mesin: RAM 3,7 GiB + iGPU HD 620 + i3-7020U (2 core/4 thread); sesaat sebelum beku jurnal mencatat `libinput ... your system is too slow`; shell juga pernah SIGSEGV (16 Okt 17:18). Insiden terjadi saat membuka App Grid lewat **F4** (pintasan `toggle-application-view=['<Super>a','F4']`, lihat §3.9).
+
+Tindakan yang dipasang - idempoten lewat `bash scripts/stabilitas-setup.sh` (bagian root memakai pkexec, muncul dialog password):
+
+- **RustDesk dinonaktifkan total** (`systemctl disable --now rustdesk`) - laptop ini bukan target remote (yang rutin di-remote = PC). Alasan kuat: `nouveau` mencatat **1.789 baris error `fifo: PBDMA0`** (semuanya di channel proses rustdesk) + 16 `gr: TRAP` dalam satu boot; RustDesk merender lewat renderD128 (NVIDIA/nouveau) yang bermasalah di mesin ini. Aktifkan kembali bila perlu: `sudo systemctl enable --now rustdesk`.
+- **Blur My Shell dikurangi di jalur berat yang jarang dipakai**: `overview blur=false` (latar Overview/App Grid - jalur beku) dan `appfolder blur=false`. **Tetap ON**: `panel` (top bar), `lockscreen`, `coverflow-alt-tab`; `applications` (blur jendela) dan `dash-to-dock` memang sudah OFF sebelumnya.
+- **SysRq darurat (REISUB)**: `/etc/sysctl.d/99-sysrq-reisub.conf` -> `kernel.sysrq=1` (sebelumnya 16 = hanya sync). Kalau beku lagi: **Alt+SysRq+R E I S U B** (reboot aman, tanpa power button), atau coba Ctrl+Alt+F3 dulu.
+
+Temuan lain (belum diubah, menunggu keputusan): `gnome-software` memakai CPU ~5% terus setelah boot; **±6 detik pertama log boot menampilkan jam +7 jam** karena kernel membaca RTC (yang berisi waktu lokal) sebagai UTC - lalu systemd menerapkan koreksi -420 menit dan chronyd sinkron sehingga jam akhirnya benar (`RTC in local TZ: yes`, efek dual-boot Windows; perbaikan permanen opsional: `timedatectl set-local-rtc 0` + Windows disetel RTC=UTC); `glycin-svg` (loader thumbnail GNOME) pernah crash berulang; repo di partisi NTFS (`ntfs-3g`) berat CPU saat operasi git; `swappiness` zram masih 10.
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -377,4 +389,5 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 16 Okt 2026 | Dock: intelligent autohide — tampil di desktop, sembunyi hanya saat jendela aplikasi menutupi area dock (`intellihide=true`, mode `FOCUS_APPLICATION_WINDOWS`) |
 | 16 Okt 2026 | Tema & tombol Flatpak seragam: izin berbagi tema/ikon/dconf (`override --user`), modul dconf sandbox di `~/.local/share/flatpak-dconf` (salinan bundel Brave + fallback host), symlink dconf/ikon per aplikasi - aplikasi GTK Flatpak ikut MacTahoe (verbatim dconf host). Catatan: suite Storyteller (egui) menggambar tombol sendiri; Brave perlu "Use system title bar and borders" |
 | 17 Okt 2026 | Ikon desktop ala Windows: DING v99 (GNOME 50) aktif - file ekstensi apa pun tampil & terbuka dari desktop, shortcut aplikasi (Brave/Files/Terminal) via `buat-shortcut-desktop.sh` + trust `metadata::trusted`; catatan: shell GNOME 50 tidak memindai folder ekstensi baru saat sesi berjalan (perlu `InstallRemoteExtension` via D-Bus, terbukti berhasil, atau logout) |
+| 17 Okt 2026 | Stabilitas & mitigasi beku (17 Okt 03:10 - layar diam tapi kursor masih bisa bergerak): RustDesk `disable --now` (sumber 1.789 error `nouveau fifo: PBDMA0` pada boot tersebut; laptop ini bukan target remote), blur Blur My Shell jalur berat OFF (`overview` = latar App Grid/Overview + `appfolder`; top bar/lockscreen/alt-tab tetap ON), SysRq `kernel.sysrq=1` via `config/sysctl.d/99-sysrq-reisub.conf` (REISUB darurat pengganti power button) - semua idempoten lewat `scripts/stabilitas-setup.sh` |
 # macos-fedora44
