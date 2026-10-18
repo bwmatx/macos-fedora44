@@ -257,6 +257,24 @@ Perbaikan final (v2) - patch kecil di file sistem dash-to-dock (`/usr/share/gnom
 
 Verifikasi final (17 Okt 04:53-04:56, sesi baru setelah logout/login): sesi baru memuat kode v2 (PID shell berganti); uji hover nyata ~79 detik (zoom masuk/keluar 6-8x, diam di ikon ber-preview, buka/tutup aplikasi) -> **0 sinyal pada path DING** di rekaman `dbus-monitor` dan **0 kali `"Creating desktop index"`** di jurnal. Pembanding sebelum patch (sesi lama): 9 sinyal + 9 rebuild hanya dalam ~23 detik hover. Tooltip, window preview, dan intellihide tetap berjalan normal. Catatan: versi upstream terbaru (v110) masih memakai pengiriman nilai live yang sama, jadi upgrade paket bukan solusi - patch ini yang menutup celah.
 
+### 3.18 Show Desktop ala Windows: Super+D minimize semua jendela (19 Okt 2026)
+
+Permintaan: tekan **Super+D** (ala Win+D) -> semua aplikasi minimize dan kembali ke desktop; tekan lagi -> semua jendela muncul kembali. Ternyata **tidak butuh ekstensi** - fitur ini sudah ada native di Mutter, hanya keybinding-nya yang belum pernah di-bind:
+
+1. Handler aslinya di mutter: `src/core/keybindings.c` -> `handle_show_desktop()` = toggle `meta_workspace_manager_show_desktop()` / `unshow_desktop()` + `meta_workspace_focus_default_window()` (restore fokus, persis Win+D). Terdaftar di tabel keybinding sebagai `META_KEYBINDING_ACTION_SHOW_DESKTOP`.
+2. Window bertipe `DESKTOP` (ikon desktop DING) dan dock otomatis dikecualikan; saat desktop aktif, window DESKTOP justru difokuskan (`meta-workspace-manager.c`). Jendela baru yang dibuka saat mode desktop aktif ikut di-minimize (`maybe_leave_show_desktop_mode` di `window.c`) - konsisten dengan Windows.
+3. Sebab dari awal tidak berfungsi: key `show-desktop` di schema `org.gnome.desktop.wm.keybindings` default-nya **kosong** (`[]`), tidak diekspos di GNOME Settings, dan GNOME Shell tidak menimpa/mengimplementasikan ulang key ini (0 kemunculan `show-desktop`/`show_desktop`/`showDesktop` di seluruh source JS GNOME Shell 50). Cakupan per-workspace (seperti Windows per virtual desktop).
+
+Aktifkan (berlaku **langsung tanpa logout** - Mutter memantau perubahan gsettings secara live; bukti: batch rebuild tabel keybinding muncul di jurnal gnome-shell tepat pada detik set):
+
+```bash
+gsettings set org.gnome.desktop.wm.keybindings show-desktop "['<Super>d']"
+```
+
+Atau lewat skrip idempoten: `bash scripts/show-desktop-setup.sh` (ada `--revert` untuk mengosongkan lagi; argumen opsional untuk binding custom). Setelan ini juga sudah masuk dump `dconf/org.gnome.ini` + `dconf/full.ini`, jadi ikut terpasang saat restore.
+
+Verifikasi (19 Okt): uji langsung setelah set - buka beberapa aplikasi, Super+D -> semua minimize & desktop + ikon DING + dock tampil; Super+D lagi -> semua jendela kembali dengan fokus ke jendela terakhir. Tidak ada warning baru di jurnal gnome-shell (batch lama `Overwriting existing binding` Super+1..9 adalah quirk yang muncul di setiap rebuild tabel, termasuk saat startup).
+
 ---
 
 ## 4. Cara Restore (pakai git clone)
@@ -349,6 +367,7 @@ gsettings get org.gnome.desktop.interface gtk-theme           # harus: 'MacTahoe
 gsettings get org.gnome.desktop.interface icon-theme          # harus: 'MacTahoe-light'
 gsettings get org.gnome.desktop.interface cursor-theme        # harus: 'MacTahoe-light'
 gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,minimize,maximize:'
+gsettings get org.gnome.desktop.wm.keybindings show-desktop   # harus: ['<Super>d']
 ```
 
 ---
@@ -410,6 +429,7 @@ gsettings get org.gnome.desktop.wm.preferences button-layout  # harus: 'close,mi
 | 17 Okt 2026 | Stabilitas & mitigasi beku (17 Okt 03:10 - layar diam tapi kursor masih bisa bergerak): RustDesk `disable --now` (sumber 1.789 error `nouveau fifo: PBDMA0` pada boot tersebut; laptop ini bukan target remote), blur Blur My Shell jalur berat OFF (`overview` = latar App Grid/Overview + `appfolder`; top bar/lockscreen/alt-tab tetap ON), SysRq `kernel.sysrq=1` via `config/sysctl.d/99-sysrq-reisub.conf` (REISUB darurat pengganti power button) - semua idempoten lewat `scripts/stabilitas-setup.sh` |
 | 17 Okt 2026 | Fix flicker ikon desktop (DING) saat pointer masuk dock (v2): patch dash-to-dock v105 `_updateVisibleDesktop()` - hover-gate + nilai "diam" 300 ms (timer reset-able) + `Math.round` + guard try/catch; DING tidak disentuh. Skrip idempoten `scripts/fix-ding-dock-flicker.sh` (backup `docking.js.d2d-orig`, ada `--revert`; jalankan ulang setelah `dnf update` dash-to-dock). **Wajib logout/login** - Shell 50 meng-cache modul JS selama sesi berjalan (disable/enable tidak memuat ulang; patch v1 sempat tidak aktif karena jebakan ini). Verifikasi final di sesi baru: uji hover ~79 dtk -> 0 sinyal D-Bus & 0 rebuild grid (sebelumnya 9 sinyal + 9 rebuild dalam ~23 dtk) |
 | 17 Okt 2026 | Verifikasi pasca-mitigasi beku: App Grid via F4 dibuka ulang -> aman (tidak beku lagi); jurnal boot bersih dari penanda hang (0 `libinput too slow`, 0 SIGSEGV, 0 OOM, 0 soft lockup) & banjir `nouveau fifo: PBDMA0` berhenti total sejak RustDesk dinonaktifkan (1.789 error semuanya dalam 1 menit saat RustDesk masih hidup) |
+| 19 Okt 2026 | Show Desktop ala Windows: tekan **Super+D** -> semua jendela minimize & kembali ke desktop; tekan lagi -> semua muncul + fokus balik (persis Win+D). Memakai fitur **native mutter** (`handle_show_desktop` -> show/unshow desktop; **tanpa ekstensi**) yang selama ini mati karena key `show-desktop` default `[]` & tanpa UI. Aktif via `gsettings set org.gnome.desktop.wm.keybindings show-desktop "['<Super>d']"` (berlaku live, tanpa logout) atau skrip idempoten `scripts/show-desktop-setup.sh` (+ `--revert`); ikon desktop DING & dock otomatis dikecualikan. Entri ikut masuk dump `dconf/org.gnome.ini` + `full.ini` |
 # macos-fedora44
 
 **© 2026 Adhiwibowo** - Portofolio: [adhiwibowo.my.id](https://adhiwibowo.my.id)
