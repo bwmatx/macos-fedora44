@@ -239,7 +239,7 @@ Tindakan yang dipasang - idempoten lewat `bash scripts/stabilitas-setup.sh` (bag
 
 Hasil uji pasca-mitigasi (17 Okt ~04:10): App Grid lewat **F4** (jalur yang memicu beku) dibuka ulang - **aman, tidak beku**. Jurnal boot berjalan bersih dari penanda hang: 0 `libinput ... too slow`, 0 SIGSEGV, 0 OOM-kill, 0 soft lockup; banjir error `nouveau fifo: PBDMA0` juga berhenti total sejak RustDesk dinonaktifkan (1.789 baris semuanya tumpah hanya dalam 1 menit, 03:12:27-03:12:28, saat RustDesk masih hidup; nol error setelah `Stopped rustdesk` 03:27:52).
 
-Temuan lain (belum diubah, menunggu keputusan): `gnome-software` memakai CPU ~5% terus setelah boot; **±6 detik pertama log boot menampilkan jam +7 jam** karena kernel membaca RTC (yang berisi waktu lokal) sebagai UTC - lalu systemd menerapkan koreksi -420 menit dan chronyd sinkron sehingga jam akhirnya benar (`RTC in local TZ: yes`, efek dual-boot Windows; perbaikan permanen opsional: `timedatectl set-local-rtc 0` + Windows disetel RTC=UTC); `glycin-svg` (loader thumbnail GNOME) pernah crash berulang; repo di partisi NTFS (`ntfs-3g`) berat CPU saat operasi git; `swappiness` zram masih 10.
+Temuan lain (status 21 Okt 2026): `gnome-software` memakai CPU ~5% terus setelah boot (**dihapus 21 Okt 2026 - §3.19**); **±6 detik pertama log boot menampilkan jam +7 jam** karena kernel membaca RTC (yang berisi waktu lokal) sebagai UTC - lalu systemd menerapkan koreksi -420 menit dan chronyd sinkron sehingga jam akhirnya benar (`RTC in local TZ: yes`, efek dual-boot Windows; perbaikan permanen opsional: `timedatectl set-local-rtc 0` + Windows disetel RTC=UTC); `glycin-svg` (loader thumbnail GNOME) pernah crash berulang; repo di partisi NTFS (`ntfs-3g`) berat CPU saat operasi git; `swappiness` zram masih 10 (**diperbaiki 21 Okt 2026 - §3.19**).
 
 ### 3.17 Fix flicker ikon desktop (DING) saat pointer masuk dock (17 Okt 2026)
 
@@ -274,6 +274,56 @@ gsettings set org.gnome.desktop.wm.keybindings show-desktop "['<Super>d']"
 Atau lewat skrip idempoten: `bash scripts/show-desktop-setup.sh` (ada `--revert` untuk mengosongkan lagi; argumen opsional untuk binding custom). Setelan ini juga sudah masuk dump `dconf/org.gnome.ini` + `dconf/full.ini`, jadi ikut terpasang saat restore.
 
 Verifikasi (19 Okt): uji langsung setelah set - buka beberapa aplikasi, Super+D -> semua minimize & desktop + ikon DING + dock tampil; Super+D lagi -> semua jendela kembali dengan fokus ke jendela terakhir. Tidak ada warning baru di jurnal gnome-shell (batch lama `Overwriting existing binding` Super+1..9 adalah quirk yang muncul di setiap rebuild tabel, termasuk saat startup).
+
+### 3.19 Pembersihan bloat & tuning beban (21 Okt 2026)
+
+Audit ini menjawab satu pertanyaan: **apa yang membuat laptop ini berat, dan mana yang benar-benar bisa dibuang tanpa merusak rice?** Mesin: ASUS VivoBook X409UJ, i3-7020U (2C/4T), RAM 3,7 GiB, zram 3,7 GB, GNOME Shell 50 Wayland. Semua angka di bawah berasal dari pemindaian sebelum tindakan; bukan perkiraan.
+
+**Bukti sebelum pembersihan:**
+
+- `updatedb` (plocate) memindai seluruh sistem termasuk `/mnt/d` dan `/mnt/e` yang bertipe `fuseblk`/ntfs-3g: **19 dtk wall, 9,06 dtk CPU, puncak 277,5 MB**. Timer `plocate-updatedb.timer` memakai `OnCalendar=daily` + `Persistent=true`.
+- `dnf-makecache.timer` aktif (`OnBootSec=10min`, `OnUnitInactiveSec=3h`); run terakhir **11,4 dtk CPU / 226 MB peak**. Tidak diperlukan karena update dijalankan manual.
+- `gnome-software` + `dnf5daemon-server`: **8,1% CPU rata-rata selama 12 menit**; saat pengukuran apply, RSS `gnome-software` **328 MB** dan `dnf5daemon-server` **±142 MB**. GNOME Software memang tidak dipakai (update lewat `dnf`/`flatpak`).
+- `abrt` ±**69 MB**, `rygel` **25,7 MB**, `gnome-user-share` **4,9 MB** saat diam. Tidak ada laporan crash yang pernah dikirim; tidak ada DLNA/file sharing yang dipakai.
+- `NetworkManager-wait-online` memakan **6,018 dtk dari total boot 34,151 dtk**. `cups.socket`/`cups.path`, `ModemManager`, dan `atd` aktif padahal tidak ada printer, modem, atau job.
+- TuneD `throughput-performance` memaksa `vm.swappiness=10` setiap boot; `vm.page-cluster=3`. Dengan zram, nilai itu membuat zram jarang dipakai.
+- Stack virtualisasi (`gnome-boxes`, `podman`, `toolbox`, `qemu-system-x86-core`, `edk2-ovmf`) = **170 paket**; tidak ada VM, container, atau toolbox.
+- Anaconda + Firefox = **8 paket**. Firefox tidak pernah dibuka (atime 15 Okt 18:25, tanpa profil `~/.mozilla`); browser default `com.brave.Browser.desktop`.
+- Flatpak: system **4,1 GB** + user **2,3 GB**; SDK system 26.08 ±**1,8 GB** tidak dipakai app system.
+
+**Yang dijalankan** - idempoten lewat `bash scripts/trim-bloat-fedora44.sh --apply` (memanggil `pkexec` sendiri):
+
+- **updatedb**: `/mnt` ditambahkan ke `PRUNEPATHS`; `fuseblk ntfs ntfs3` ke `PRUNEFS`. Plocate tetap aktif - hanya filesystem NTFS yang tidak lagi dipindai.
+- **TuneD**: profile anak `/etc/tuned/profiles/macos-zram/tuned.conf` dengan `include=throughput-performance` dan override `vm.swappiness=100`, `vm.page-cluster=0`. Ini runtime sysctl; **tidak mengganti paket kernel**.
+- **Mapping PPD**: ini bagian penting yang sempat gagal. `tuned-ppd` memetakan PPD `performance` ke `throughput-performance` dan menimpanya **satu detik** setelah TuneD start (log 02:28:35 `macos-zram` -> 02:28:36 `throughput-performance`; sysctl balik ke 10/3). Karena itu `/etc/tuned/ppd.conf` diubah dari `performance=throughput-performance` menjadi **`performance=macos-zram`**. Mode Performance GNOME tetap berfungsi (PPD masih aktif), tetapi sekarang menjalankan profile zram. Mode Balanced/Power Saver tetap memakai profile TuneD aslinya; tuning zram 100 hanya aktif di mode Performance. Tanpa mapping ini, profile langsung terbalik saat TuneD restart; reboot penuh belum dijalankan.
+- **Service**: `dnf-makecache.timer`, `NetworkManager-wait-online`, `ModemManager`, `atd`, `cups.socket`, `cups.path` di-disable. `packagekitd` dihentikan setelah GNOME Software hilang (service-nya static; tidak perlu dihapus).
+- **Paket**: GNOME Software + dnf5daemon, Rygel + gnome-user-share, ABRT, RustDesk + guest tools, 10 aplikasi GNOME + `gnome-user-docs` + `evolution-ews`, 170 paket virtualisasi, `cups-browsed` + `bluez-cups`, lalu Anaconda + Firefox dengan `--setopt=clean_requirements_on_remove=False` agar dependency bersama (LibreOffice/dnf/Java) tidak ikut terbawa. Total **8 transaksi DNF, 265 entri paket termasuk dependency**.
+- **Flatpak**: hanya **SDK system** yang dibuang. `flatpak uninstall --system --unused` sengaja **tidak** dipakai: percobaan pertama menghapus `org.freedesktop.Platform 26.08` yang ternyata dibutuhkan app user **Photocraft**. Runtime 26.08 dipasang kembali ke instalasi user dan dipin; ketiga app Storyteller diuji ulang.
+- **Evolution alarm**: autostart di-override `Hidden=true` di `~/.config/autostart/`; `evolution-data-server` + GOA **tetap** karena `gnome-shell` membutuhkan `libecal`/`libedataserver`.
+
+**Hasil terukur (21 Okt, setelah apply):**
+
+- `updatedb` pasca-prune: **4 dtk wall / 3,6-3,9 dtk CPU / 179-196 MiB peak** (run pertama setelah perubahan: 5,45 dtk CPU / 224 MiB). Turun dari 19 dtk / 9,06 dtk CPU / 277,5 MB.
+- TuneD persisten: setelah **dua kali** `systemctl restart tuned`, `tuned-adm active` tetap **`macos-zram`**, `vm.swappiness=100`, `vm.page-cluster=0`; PPD `ActiveProfile` tetap `performance`. Skrip sekarang memverifikasi ini dan gagal bila profile terbalik lagi.
+- Memori idle setelah uji Brave ditutup (Packet tetap berjalan): **2,3 GiB used / 1,4 GiB available** -> **1,7 GiB used / 2,0 GiB available**. Sesi kerja aktif (opencode/antigravity/Packet) bisa kembali ke ±2,3 GiB; angka `free` bergantung aplikasi yang dibuka. Swap zram ±540-630 MiB (data ±450-510 MiB, kompresi ±140-160 MiB) karena `swappiness=100`; ini swap kompresi di RAM, bukan swap disk, dan akan reset saat reboot.
+- `systemctl --failed` dan `systemctl --user --failed`: **0 unit**. Service user GNOME Software/Rygel/user-share/alarm: **inactive**; `packagekitd` tidak ada.
+- Flatpak: system **4,1 -> 1,9 GB**, user **2,3 -> 3,4 GB** (runtime Photocraft 26.08 dipulihkan); total **6,4 -> 5,3 GB**, hemat bersih ±**1,1 GB**.
+- Guard kernel/NVIDIA: `kernel-core-6.19.10-300.fc44`, `kernel-modules-6.19.10-300.fc44`, `nvidia-gpu-firmware-20260309-1.fc44`, dan `linux-firmware-20260309-1.fc44` **tidak berubah**. GRUB dan fstab tidak disentuh; driver `ntfs3` tidak diubah (hanya string `ntfs3` yang masuk daftar prune `updatedb`).
+- Aplikasi yang dipertahankan diuji: **Brave 155.1.97.57** (default browser), **Packet 0.7.3**, **Storyteller Gridcraft/Wordcraft/Photocraft**, **LibreOffice 26.2.1.2**, **Java 25.0.2**; DNF5 tetap berfungsi. Bluetooth aktif dan OPPO Reno6 masih terpasang.
+- Rice tidak berubah: DING + Dash to Dock aktif, `show-desktop=['<Super>d']`, `intellihide=true`, `hide-tooltip=false`; ikon desktop masih ada.
+- **Efek boot belum diukur** karena belum reboot. `NetworkManager-wait-online` sudah disabled; setelah reboot berikutnya `systemd-analyze` bisa dibandingkan dengan baseline 34,151 dtk.
+
+**Pemakaian skrip:**
+
+```bash
+bash scripts/trim-bloat-fedora44.sh --dry-run   # lihat rencana
+bash scripts/trim-bloat-fedora44.sh --apply     # terapkan (pkexec otomatis)
+bash scripts/trim-bloat-fedora44.sh --revert    # balikkan config sistem
+```
+
+Jalur `--revert` sudah diuji 21 Okt: `updatedb.conf` kembali tanpa prune, `ppd.conf` kembali `performance=throughput-performance`, TuneD kembali `throughput-performance` (swappiness 10/page-cluster 3), service di-enable, autostart Evolution dipulihkan; `--apply` berikutnya mengembalikan `macos-zram` (100/0) dan semua perubahan. Paket yang sudah dihapus **tidak** diinstal ulang otomatis (perintah reinstall dicetak di akhir). Skrip ini opsional dan bukan bagian dari restore rice.
+
+**Konsekuensi yang disengaja:** GNOME Software (update via `sudo dnf upgrade --refresh` + `flatpak update`), Firefox/Anaconda, RDP/file sharing/DLNA, VM/container/toolbox, scanner, dan printer discovery tidak tersedia lagi. Java, LibreOffice, EDS/GOA, Brave, Packet, Storyteller, Bluetooth, Avahi, fwupd, malcontent, localsearch, DING, dan dock tetap dipertahankan.
 
 ---
 
@@ -430,6 +480,7 @@ gsettings get org.gnome.desktop.wm.keybindings show-desktop   # harus: ['<Super>
 | 17 Okt 2026 | Fix flicker ikon desktop (DING) saat pointer masuk dock (v2): patch dash-to-dock v105 `_updateVisibleDesktop()` - hover-gate + nilai "diam" 300 ms (timer reset-able) + `Math.round` + guard try/catch; DING tidak disentuh. Skrip idempoten `scripts/fix-ding-dock-flicker.sh` (backup `docking.js.d2d-orig`, ada `--revert`; jalankan ulang setelah `dnf update` dash-to-dock). **Wajib logout/login** - Shell 50 meng-cache modul JS selama sesi berjalan (disable/enable tidak memuat ulang; patch v1 sempat tidak aktif karena jebakan ini). Verifikasi final di sesi baru: uji hover ~79 dtk -> 0 sinyal D-Bus & 0 rebuild grid (sebelumnya 9 sinyal + 9 rebuild dalam ~23 dtk) |
 | 17 Okt 2026 | Verifikasi pasca-mitigasi beku: App Grid via F4 dibuka ulang -> aman (tidak beku lagi); jurnal boot bersih dari penanda hang (0 `libinput too slow`, 0 SIGSEGV, 0 OOM, 0 soft lockup) & banjir `nouveau fifo: PBDMA0` berhenti total sejak RustDesk dinonaktifkan (1.789 error semuanya dalam 1 menit saat RustDesk masih hidup) |
 | 19 Okt 2026 | Show Desktop ala Windows: tekan **Super+D** -> semua jendela minimize & kembali ke desktop; tekan lagi -> semua muncul + fokus balik (persis Win+D). Memakai fitur **native mutter** (`handle_show_desktop` -> show/unshow desktop; **tanpa ekstensi**) yang selama ini mati karena key `show-desktop` default `[]` & tanpa UI. Aktif via `gsettings set org.gnome.desktop.wm.keybindings show-desktop "['<Super>d']"` (berlaku live, tanpa logout) atau skrip idempoten `scripts/show-desktop-setup.sh` (+ `--revert`); ikon desktop DING & dock otomatis dikecualikan. Entri ikut masuk dump `dconf/org.gnome.ini` + `full.ini` |
+| 21 Okt 2026 | Audit beban + debloat: `updatedb` prune `/mnt` + `fuseblk ntfs ntfs3` (9,06 -> 3,6-3,9 dtk CPU, 277,5 -> 179-196 MiB peak), TuneD `macos-zram` + mapping PPD `performance=macos-zram` (swappiness 100/page-cluster 0; terbukti bertahan setelah restart), disable dnf-makecache/NM-wait-online/ModemManager/atd/cups socket, hapus GNOME Software+dnf5daemon, Rygel, ABRT, RustDesk/guest tools, app mati, 170 paket virtualisasi, CUPS/BlueZ printing, Anaconda+Firefox (265 entri, dependency bersama dijaga), Flatpak hanya SDK system (Platform 26.08 Photocraft dipulihkan), autostart Evolution alarm disembunyikan. Memori idle 2,3 -> 1,7 GiB used (1,4 -> 2,0 GiB available); kernel/NVIDIA/GRUB/fstab tidak disentuh dan driver ntfs3 tidak diubah; efek boot menunggu reboot. Skrip `scripts/trim-bloat-fedora44.sh` (dry-run/apply/revert) |
 # macos-fedora44
 
 **© 2026 Adhiwibowo** - Portofolio: [adhiwibowo.my.id](https://adhiwibowo.my.id)
